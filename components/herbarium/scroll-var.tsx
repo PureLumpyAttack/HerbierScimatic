@@ -64,7 +64,12 @@ export function ScrollVar({
     let size = Math.min(stage.clientWidth, height)
     const progressTargets = Array.from(el.querySelectorAll<HTMLElement | SVGElement>("[data-progress]"))
     if (!progressTargets.length) progressTargets.push(el)
-    const progressValues = new Map<Element, number>()
+    const progress = progressTargets.map((element) => ({
+      style: element.style,
+      start: Number(element.dataset.progressStart) || 0,
+      end: Number(element.dataset.progress) || 1,
+      value: NaN,
+    }))
     const gated = Array.from(el.querySelectorAll<HTMLElement>("[data-at]"), (element) => ({ element, at: Number(element.dataset.at) }))
     const gateStops = [...new Set(gated.flatMap(({ at }) => [at, at + 0.16]))].sort((a, b) => a - b)
     // The section's document offset is cached and only re-measured on resize,
@@ -83,13 +88,12 @@ export function ScrollVar({
     const update = () => {
       raf = 0
       const top = docTop - window.scrollY
-      const r = { top, height: elHeight, bottom: top + elHeight }
       const p =
         mode === "sticky"
-          ? -r.top / Math.max(1, r.height - vh)
-          : (vh - r.top) / Math.max(1, r.height)
+          ? -top / Math.max(1, elHeight - vh)
+          : (vh - top) / Math.max(1, elHeight)
       const c = Math.min(1, Math.max(0, p))
-      const visible = r.top < vh && r.bottom > 0
+      const visible = top < vh && top + elHeight > 0
       if (el.dataset.visible !== String(visible)) {
         el.dataset.visible = String(visible)
         last = -1
@@ -123,11 +127,12 @@ export function ScrollVar({
       }
       if (Math.abs(c - last) > 0.0005) {
         last = c
-        for (const target of progressTargets) {
-          const value = Math.min(c, Number(target.dataset.progress) || 1)
-          if (progressValues.get(target) === value) continue
-          target.style.setProperty("--p", value.toFixed(4))
-          progressValues.set(target, value)
+        const progressValue = c.toFixed(4)
+        for (const target of progress) {
+          const value = Math.min(target.end, Math.max(target.start, c))
+          if (target.value === value) continue
+          target.style.setProperty("--p", value === c ? progressValue : value.toFixed(4))
+          target.value = value
         }
         const gate = gateStops.findIndex((at) => at > c)
         if (gate === lastGate) return

@@ -316,6 +316,7 @@ export const CloudShader = ({
     let visible = false;
     let lastDraw = -Infinity;
     const schedule = () => {
+      if (lastDraw !== -Infinity && (reduceMotion || paramsRef.current.speed === 0)) return;
       if (running && visible && !document.hidden && !frame) {
         frame = requestAnimationFrame(draw);
       }

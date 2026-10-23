@@ -368,7 +368,12 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     rushing = false
     if (disposed || !jobs.length) return
     if (rush()) {
-      for (let n = 6; n > 0 && jobs.length && !disposed; n--) jobs.shift()!.run()
+      const deadline = performance.now() + 4
+      for (let n = 6; n > 0 && jobs.length && !disposed; n--) {
+        const job = jobs.shift()!
+        job.run()
+        if (job.heavy || performance.now() >= deadline) break
+      }
     } else {
       const now = performance.now()
       const quiet = now - lastScroll >= SCROLL_QUIET_MS
@@ -560,6 +565,8 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
   globe.add(hiPatch)
 
   // island of Montréal: soft fill + outline
+  const island = new THREE.Group()
+  globe.add(island)
   const islandR = 1.00012
   const contour = ISLAND.map(([lon, lat]) => new THREE.Vector2(lon, lat))
   const tris = THREE.ShapeUtils.triangulateShape(contour, [])
@@ -575,11 +582,12 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     depthTest: false,
     depthWrite: false,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     blending: THREE.AdditiveBlending,
   })
   const fill = new THREE.Mesh(fillGeo, fillMat)
   fill.renderOrder = 5
-  globe.add(fill)
+  island.add(fill)
 
   const ring = [...ISLAND, ISLAND[0]].flatMap(([lon, lat]) => latLonToVec3(lat, lon, islandR).toArray())
   const outline = (width: number, color: string) => {
@@ -596,7 +604,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     const l = new Line2(g, m)
     l.computeLineDistances()
     l.renderOrder = 6
-    globe.add(l)
+    island.add(l)
     return m
   }
   const glowMat = outline(9, "#c9b2ff")
@@ -612,6 +620,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
   const CLOUD_STEP = 8
   const cloudTargets = Array.from({ length: 3 }, () => {
     const target = new THREE.WebGLRenderTarget(CLOUD_W, CLOUD_H, {
+      format: THREE.RedFormat,
       depthBuffer: false,
       generateMipmaps: true,
       minFilter: THREE.LinearMipmapLinearFilter,
@@ -756,7 +765,8 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     opacity: 0,
     depthWrite: false,
   })
-  scene.add(new THREE.Points(starGeo, starMat))
+  const stars = new THREE.Points(starGeo, starMat)
+  scene.add(stars)
 
   /* sizing -------------------------------------------------------- */
   let width = 1
@@ -931,9 +941,11 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     midMat.uniforms.haze.value = m
     hiMat.uniforms.haze.value = m
     starMat.opacity = 0.85 * (1 - ease(seg(p, 0.42, 0.62)))
+    stars.visible = starMat.opacity > 0
 
     // island highlight: no blinking, it simply settles in
     const glow = ease(seg(p, 0.72, 0.84))
+    island.visible = glow > 0
     fillMat.opacity = glow * 0.16
     glowMat.opacity = glow * 0.35
     lineMat.opacity = glow * 0.95
@@ -992,6 +1004,15 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
       // canvas never holds the throwaway view: it stays on screen until the
       // first visible frame and would flash a wrongly placed globe.
       drawFrame(performance.now(), 1, true)
+      // Warm the canvas's presentation buffers before scrolling reaches it.
+      const snapshots = [createImageBitmap(renderer.domElement)]
+      for (let i = 1; i < 3; i++) {
+        renderer.render(scene, camera)
+        snapshots.push(createImageBitmap(renderer.domElement))
+      }
+      void Promise.allSettled(snapshots).then((results) => {
+        for (const result of results) if (result.status === "fulfilled") result.value.close()
+      })
       ready = true
       if (visible && !document.hidden && !raf) {
         lastT = performance.now()

@@ -41,6 +41,7 @@ export function Hotspot({
     let automatic = false
     let intersecting = false
     let frame = 0
+    let lastPosition = ""
     let pending: ReturnType<typeof setTimeout>
     const visibility = new IntersectionObserver(([entry]) => {
       intersecting = entry.isIntersecting
@@ -89,16 +90,23 @@ export function Hotspot({
         }
         top = Math.max(edge, Math.min(bottom - h, top))
       }
-      pop.style.left = `${left}px`
-      pop.style.top = `${top}px`
+      const position = `translate3d(${left.toFixed(2)}px, ${top.toFixed(2)}px, 0)`
+      if (position !== lastPosition) {
+        pop.style.transform = position
+        lastPosition = position
+      }
     }
 
     const schedulePlace = () => {
       if (!frame) frame = requestAnimationFrame(place)
     }
+    const onSceneMove = () => {
+      if (window.innerWidth <= 720 && (variant !== "species" || pop.dataset.expanded === "true")) return
+      schedulePlace()
+    }
     const sizeObserver = new ResizeObserver(schedulePlace)
     const onScroll = () => {
-      if (automatic) schedulePlace()
+      if (automatic) onSceneMove()
       else if (pop.matches(":popover-open")) pop.hidePopover()
     }
     const onActive = () => {
@@ -127,7 +135,7 @@ export function Hotspot({
         window.visualViewport?.addEventListener("resize", schedulePlace)
         window.visualViewport?.addEventListener("scroll", schedulePlace)
         sizeObserver.observe(pop)
-        scene?.addEventListener("scene-move", schedulePlace)
+        scene?.addEventListener("scene-move", onSceneMove)
       } else {
         setExpanded(false)
         sizeObserver.disconnect()
@@ -138,11 +146,11 @@ export function Hotspot({
         window.removeEventListener("resize", schedulePlace)
         window.visualViewport?.removeEventListener("resize", schedulePlace)
         window.visualViewport?.removeEventListener("scroll", schedulePlace)
-        scene?.removeEventListener("scene-move", schedulePlace)
+        scene?.removeEventListener("scene-move", onSceneMove)
       }
     }
     spot.addEventListener("spot-active", onActive)
-    spot.addEventListener("transitionend", schedulePlace)
+    spot.addEventListener("transitionend", onSceneMove)
     pop.addEventListener("toggle", onToggle)
     if (pop.matches(":popover-open")) {
       automatic = variant !== "taxon" && spot.dataset.active === "true"
@@ -156,13 +164,13 @@ export function Hotspot({
       visibility.disconnect()
       sizeObserver.disconnect()
       spot.removeEventListener("spot-active", onActive)
-      spot.removeEventListener("transitionend", schedulePlace)
+      spot.removeEventListener("transitionend", onSceneMove)
       pop.removeEventListener("toggle", onToggle)
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", schedulePlace)
       window.visualViewport?.removeEventListener("resize", schedulePlace)
       window.visualViewport?.removeEventListener("scroll", schedulePlace)
-      scene?.removeEventListener("scene-move", schedulePlace)
+      scene?.removeEventListener("scene-move", onSceneMove)
     }
   }, [side, variant])
 

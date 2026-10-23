@@ -177,6 +177,15 @@ const rootsCamera: CameraStop[] = [
 
 const v = (vars: Record<string, number | string>) => vars as CSSProperties
 
+const growthRange = (delay: number, span: number) => {
+  const start = Number(delay.toFixed(3)) / 3.6
+  const end = start + Number(span.toFixed(3)) / 3.6
+  return {
+    "data-progress-start": Math.floor(start * 10000) / 10000,
+    "data-progress": Math.min(0.35, Math.ceil(end * 10000) / 10000),
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Page                                                                */
 /* ------------------------------------------------------------------ */
@@ -187,7 +196,7 @@ export default function Page() {
       {/* I. Hero: the aerial part, its organs pointed out while scrolling */}
       <ScrollVar className="hero" camera={heroCamera} grounded aria-labelledby="titre">
         <div className="hero-stage">
-          <div className="hero-clouds" aria-hidden="true">
+          <div className="hero-clouds" data-progress="0.13" aria-hidden="true">
             <CloudShader
               transparent
               count={6}
@@ -207,7 +216,7 @@ export default function Page() {
             </nav>
           </header>
 
-          <div className="hero-type">
+          <div className="hero-type" data-progress="0.26">
             <h1 id="titre" className="hero-name">
               Solanum tuberosum<span className="hero-author">L.</span>
             </h1>
@@ -239,9 +248,9 @@ export default function Page() {
             <div className="hero-ground" aria-hidden="true" />
           </div>
 
-          <p className="hero-meta hero-meta-left">Solanaceae · Planche n°&nbsp;001</p>
-          <p className="hero-meta hero-meta-right">Récolte · 22.10.2026</p>
-          <p className="hero-hint" aria-hidden="true">
+          <p className="hero-meta hero-meta-left" data-progress-start="0.8" data-progress="0.925">Solanaceae · Planche n°&nbsp;001</p>
+          <p className="hero-meta hero-meta-right" data-progress-start="0.8" data-progress="0.925">Récolte · 22.10.2026</p>
+          <p className="hero-hint" data-progress-start="0.08" data-progress="0.205" aria-hidden="true">
             Morphologie — touchez un point
           </p>
         </div>
@@ -250,9 +259,9 @@ export default function Page() {
       {/* II. Under the soil: roots, organs, and the lineage of the name */}
       <ScrollVar id="identite" className="roots" mode="reveal" camera={rootsCamera} worldHeight={ROOT_HEIGHT} aria-label="Identité : de la racine au nom">
         <div className="roots-stage">
-          <div className="soil-depth" data-progress="1" aria-hidden="true">
-            <div className="soil-texture" aria-hidden="true" />
-            <div className="soil-grit-layer" aria-hidden="true">
+          <div className="soil-depth" aria-hidden="true">
+            <div className="soil-texture" data-progress-start="0.35" data-progress="1" />
+            <div className="soil-grit-layer" data-progress-start="0.35" data-progress="1">
               <svg className="soil-grit" viewBox="0 0 1600 4000" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
                 {pebbles.map((s, i) => (
                   <ellipse
@@ -268,11 +277,13 @@ export default function Page() {
                 ))}
               </svg>
             </div>
-            <div className="soil-exit" />
+            <div className="soil-shade" data-progress-start="0.35" data-progress="1" />
+            <div className="soil-darkness" data-progress-start="0.35" data-progress="1" />
+            <div className="soil-exit" data-progress-start="0.85" data-progress="1" />
           </div>
 
           <div className="plate plate-roots">
-            <svg data-progress="0.35" className="grow roots-svg" viewBox={`0 0 1000 ${ROOT_HEIGHT}`} aria-hidden="true">
+            <svg className="grow roots-svg roots-growth" viewBox="0 0 1000 1000" aria-hidden="true">
               <path className="roots-stem" d="M492.5 -2 L491 38 Q500 46 509 38 L507.5 -2 Z" />
               {roots.paths.filter((r) => r.depth < 3).map((r, i) => (
                 <path
@@ -282,6 +293,7 @@ export default function Page() {
                   pathLength={1}
                   strokeWidth={r.width}
                   style={v({ "--d": r.delay.toFixed(3), "--s": r.span.toFixed(3) })}
+                  {...growthRange(r.delay, r.span)}
                 />
               ))}
               {roots.tubers.map((t, i) => (
@@ -291,7 +303,7 @@ export default function Page() {
                   style={v({ "--d": t.delay.toFixed(3) })}
                   transform={`translate(${t.cx.toFixed(1)} ${t.cy.toFixed(1)}) rotate(${t.rot.toFixed(1)})`}
                 >
-                  <g className="roots-tuber-body">
+                  <g className="roots-tuber-body" {...growthRange(t.delay, 0.16)}>
                     <ellipse rx={t.rx} ry={t.ry} />
                     <ellipse className="roots-tuber-shade" rx={t.rx * 0.8} ry={t.ry * 0.62} cx={t.rx * 0.08} cy={t.ry * 0.2} />
                     {t.eyes.map((e, k) => (
@@ -309,15 +321,15 @@ export default function Page() {
               </div>
             </div>
 
-            <svg className="roots-svg taxon-sketch" viewBox={`0 0 1000 ${ROOT_HEIGHT}`} aria-hidden="true">
-              {lineage.nodes.map((node, group) => (
-                <g key={group} className="taxon-branch" data-at={atFraction(node.t)} transform={`translate(0 ${node.y - 350})`}>
+            {lineage.nodes.map((node, group) => (
+              <div key={group} className="taxon-branch" data-at={atFraction(node.t)} style={{ top: `${(node.y - 350) / ROOT_HEIGHT * 100}%` }} aria-hidden="true">
+                <svg className="taxon-sketch" viewBox="0 0 1000 700">
                   {taxonSketches[group].map((stroke) => (
                     <path key={stroke.id} strokeWidth={stroke.width} d={stroke.d} />
                   ))}
-                </g>
-              ))}
-            </svg>
+                </svg>
+              </div>
+            ))}
 
             {photoNodes.map((p, i) => {
               const photo = p.photo
