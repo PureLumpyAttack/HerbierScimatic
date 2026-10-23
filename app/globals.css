@@ -206,12 +206,14 @@ body {
 .hero {
   position: relative;
   height: 650vh;
+  background: var(--soil);
 }
 
 .hero-stage {
   position: sticky;
   top: 0;
-  height: 100svh;
+  height: 100vh;
+  height: 100dvh;
   min-height: 640px;
   overflow: hidden;
   container-type: size;
@@ -789,6 +791,8 @@ body {
 
 .spot-card-species { width: min(440px, calc(100vw - 24px)); }
 
+.spot-card-close, .spot-card-expand { display: none; }
+
 .spot-facts { margin: 0; }
 
 .spot-facts div {
@@ -845,7 +849,8 @@ body {
 .roots-stage {
   position: sticky;
   top: 0;
-  height: 100svh;
+  height: 100vh;
+  height: 100dvh;
   min-height: 640px;
   overflow: hidden;
   container-type: size;
@@ -1122,7 +1127,8 @@ body {
 .earth-stage {
   position: sticky;
   top: 0;
-  height: 100svh;
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   background: var(--space);
   color: var(--paper);
@@ -1417,6 +1423,55 @@ body {
 }
 
 @media (max-width: 720px) {
+  .spot-card {
+    width: calc(100vw - 32px);
+    max-height: min(32dvh, 15rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.8rem 1rem;
+    font-size: 0.9rem;
+  }
+  .spot-card h3 { padding-right: 1.5rem; font-size: 1.5rem; }
+  .spot-card-kicker { font-size: 0.8rem; }
+  .spot-card p:last-child { line-height: 1.4; }
+  .spot-card-close {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink-2);
+    font-size: 1.4rem;
+    cursor: pointer;
+  }
+  .spot-card-expand {
+    display: block;
+    margin-top: 0.5rem;
+    padding: 0.4rem 0;
+    border: 0;
+    background: none;
+    color: var(--violet);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    cursor: pointer;
+  }
+  .spot-card-species:not([data-expanded="true"]) { padding-block: 0.65rem; }
+  .spot-card-species:not([data-expanded="true"]) .spot-card-kicker { display: none; }
+  .spot-card-species:not([data-expanded="true"]) h3 { margin: 0; }
+  .spot-card-species:not([data-expanded="true"]) .spot-card-expand {
+    min-height: 44px;
+    margin-top: 0.15rem;
+    padding-block: 0.25rem;
+  }
+  .spot-card-species:not([data-expanded="true"]) .spot-facts { display: none; }
+  .spot-card-species[data-expanded="true"] { max-height: 60dvh; }
+  .spot-facts div { grid-template-columns: 1fr; gap: 0.15rem; font-size: 0.9rem; }
   .taxon-photo:not(.taxon-photo-species) figcaption i { display: none; }
   .masthead nav { display: none; }
   .hero-meta { font-size: 0.88rem; bottom: 2rem; }

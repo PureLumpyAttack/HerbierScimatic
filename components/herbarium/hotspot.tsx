@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useId, useRef, type CSSProperties, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react"
 
 export function Hotspot({
   x,
@@ -30,6 +30,7 @@ export function Hotspot({
   const id = useId()
   const btnRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     const pop = popRef.current
@@ -75,6 +76,19 @@ export function Hotspot({
           }
         }
       }
+      if (vw <= 720) {
+        const viewport = window.visualViewport
+        const edge = (viewport?.offsetTop ?? 0) + 12
+        const bottom = edge + (viewport?.height ?? vh) - 24
+        left = (vw - w) / 2
+        top = scene?.classList.contains("hero") ? edge + 56 : bottom - h
+        if (variant === "species" && pop.dataset.expanded !== "true") {
+          const photo = scene?.querySelector(".taxon-photo-species")?.getBoundingClientRect()
+          if (photo) top = photo.bottom + 16
+          if (top + h > bottom) top = r.top - h - 20
+        }
+        top = Math.max(edge, Math.min(bottom - h, top))
+      }
       pop.style.left = `${left}px`
       pop.style.top = `${top}px`
     }
@@ -82,6 +96,7 @@ export function Hotspot({
     const schedulePlace = () => {
       if (!frame) frame = requestAnimationFrame(place)
     }
+    const sizeObserver = new ResizeObserver(schedulePlace)
     const onScroll = () => {
       if (automatic) schedulePlace()
       else if (pop.matches(":popover-open")) pop.hidePopover()
@@ -109,13 +124,20 @@ export function Hotspot({
         schedulePlace()
         window.addEventListener("scroll", onScroll, { passive: true })
         window.addEventListener("resize", schedulePlace)
+        window.visualViewport?.addEventListener("resize", schedulePlace)
+        window.visualViewport?.addEventListener("scroll", schedulePlace)
+        sizeObserver.observe(pop)
         scene?.addEventListener("scene-move", schedulePlace)
       } else {
+        setExpanded(false)
+        sizeObserver.disconnect()
         automatic = false
         cancelAnimationFrame(frame)
         frame = 0
         window.removeEventListener("scroll", onScroll)
         window.removeEventListener("resize", schedulePlace)
+        window.visualViewport?.removeEventListener("resize", schedulePlace)
+        window.visualViewport?.removeEventListener("scroll", schedulePlace)
         scene?.removeEventListener("scene-move", schedulePlace)
       }
     }
@@ -132,11 +154,14 @@ export function Hotspot({
       clearTimeout(pending)
       cancelAnimationFrame(frame)
       visibility.disconnect()
+      sizeObserver.disconnect()
       spot.removeEventListener("spot-active", onActive)
       spot.removeEventListener("transitionend", schedulePlace)
       pop.removeEventListener("toggle", onToggle)
       window.removeEventListener("scroll", onScroll)
       window.removeEventListener("resize", schedulePlace)
+      window.visualViewport?.removeEventListener("resize", schedulePlace)
+      window.visualViewport?.removeEventListener("scroll", schedulePlace)
       scene?.removeEventListener("scene-move", schedulePlace)
     }
   }, [side, variant])
@@ -166,8 +191,14 @@ export function Hotspot({
           {sub ? <span className="spot-sub">{sub}</span> : null}
         </span>
       </button>
-      <div ref={popRef} id={id} popover={variant === "species" ? "manual" : "auto"} className={`spot-card spot-card-${variant}`}>
+      <div ref={popRef} id={id} popover={variant === "species" ? "manual" : "auto"} className={`spot-card spot-card-${variant}`} data-expanded={expanded}>
+        <button type="button" className="spot-card-close" aria-label="Fermer la fiche" onClick={() => popRef.current?.hidePopover()}>×</button>
         {children}
+        {variant === "species" ? (
+          <button type="button" className="spot-card-expand" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
+            {expanded ? "Réduire la fiche" : "Voir la fiche complète"}
+          </button>
+        ) : null}
       </div>
     </div>
   )
