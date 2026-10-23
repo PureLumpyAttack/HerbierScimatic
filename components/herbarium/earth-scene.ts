@@ -321,6 +321,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  renderer.debug.checkShaderErrors = process.env.NODE_ENV !== "production"
   renderer.setClearColor(0x000000, 0)
   renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -332,10 +333,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
   const camera = new THREE.PerspectiveCamera(35, 1, 0.001, 200)
 
   /* textures ------------------------------------------------------ */
-  // Images are fetched and decoded off the main thread (createImageBitmap),
-  // then uploaded to the GPU one per idle period with a plain texImage2D.
-  // Letting three upload them during render (decode + texStorage2D +
-  // texSubImage2D) stalled scroll frames for 50–290 ms per 4K image.
+  // Decode off-thread, then upload bounded slices between frames.
   const gl = renderer.getContext() as WebGL2RenderingContext
   const anisoExt = gl.getExtension("EXT_texture_filter_anisotropic")
   const maxAniso = renderer.capabilities.getMaxAnisotropy()
@@ -343,9 +341,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
   // the 4K map is already sharper than the screen can show. The 8K map used
   // on wide screens cost ~170 MB of GPU memory and a much longer upload.
   const glTextures: WebGLTexture[] = []
-  // Background GPU work (texture uploads, cloud bake slices) goes through a
-  // single queue, one job per idle period, so jobs never pile up in the
-  // same frame and the GPU is never flooded while the page is scrolling.
+  const pendingBitmaps = new Set<ImageBitmap>()
   type Job = { run: () => void; heavy: boolean; since: number }
   const jobs: Job[] = []
   const loads = new AbortController()
@@ -353,38 +349,31 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
   let rushing = false
   // the Earth is on screen but not ready yet (fast scroll): drain faster
   const rush = () => visible && !ready
-  // Heavy jobs (4K texture uploads: 5–25 ms of main thread plus mipmap
-  // generation on the GPU) wait for a pause in scrolling, when the GPU isn't
-  // already busy rastering the roots. Light jobs (a thin bake slice) still
-  // run during scroll, at most one per idle period. A heavy job that has
-  // waited too long runs anyway, so continuous scrollers aren't starved.
+  // Warmup waits for a pause; texture and cloud slices can run during scroll.
   let lastScroll = 0
   const onPageScroll = () => { lastScroll = performance.now() }
   window.addEventListener("scroll", onPageScroll, { passive: true })
   const SCROLL_QUIET_MS = 180
   const HEAVY_MAX_WAIT_MS = 6000
-  const pumpJobs = () => {
+  const pumpJobs = (idleDeadline?: IdleDeadline | number) => {
     idle = 0
     rushing = false
     if (disposed || !jobs.length) return
-    if (rush()) {
-      const deadline = performance.now() + 4
-      for (let n = 6; n > 0 && jobs.length && !disposed; n--) {
-        const job = jobs.shift()!
-        job.run()
-        if (job.heavy || performance.now() >= deadline) break
-      }
-    } else {
+    const budget = typeof idleDeadline === "object" ? Math.min(4, idleDeadline.timeRemaining()) : 4
+    const deadline = performance.now() + budget
+    for (let n = 0; n < 6 && jobs.length && !disposed; n++) {
       const now = performance.now()
       const quiet = now - lastScroll >= SCROLL_QUIET_MS
-      const index = jobs.findIndex((job) => !job.heavy || quiet || now - job.since > HEAVY_MAX_WAIT_MS)
+      const index = rush() ? 0 : jobs.findIndex((job) => !job.heavy || quiet || now - job.since > HEAVY_MAX_WAIT_MS)
       if (index < 0) {
         // only heavy jobs left and the page is scrolling: check back shortly
         idleKind = "timeout"
         idle = setTimeout(pumpJobs, SCROLL_QUIET_MS) as unknown as number
         return
       }
-      jobs.splice(index, 1)[0].run()
+      const job = jobs.splice(index, 1)[0]
+      job.run()
+      if (job.heavy || performance.now() >= deadline) break
     }
     if (jobs.length && !disposed) scheduleJobs()
   }
@@ -418,6 +407,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     jobs.push({ run, heavy, since: performance.now() })
     scheduleJobs()
   }
+  const UPLOAD_PIXELS = 256 * 1024
   const tex = (url: string, { srgb = true, mipmaps = true, priority = "auto" as RequestPriority } = {}) => {
     // three binds `sourceTexture` as is; until it's uploaded it samples black
     const t = new THREE.ExternalTexture(null)
@@ -430,6 +420,7 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
       }))
       .then((bitmap) => {
         if (disposed) return bitmap.close()
+        pendingBitmaps.add(bitmap)
         queueJob(() => {
           const handle = gl.createTexture()
           glTextures.push(handle)
@@ -438,21 +429,38 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
           gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false)
           gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, srgb ? gl.BROWSER_DEFAULT_WEBGL : gl.NONE)
           gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
-          // sRGB internal format: the GPU linearizes on sampling, like three does
-          gl.texImage2D(gl.TEXTURE_2D, 0, srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bitmap)
+          const format = srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8
+          const rows = Math.max(1, Math.floor(UPLOAD_PIXELS / bitmap.width))
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR)
-          if (mipmaps) {
-            if (anisoExt) gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, maxAniso)
-            gl.generateMipmap(gl.TEXTURE_2D)
+          if (mipmaps && anisoExt) gl.texParameterf(gl.TEXTURE_2D, anisoExt.TEXTURE_MAX_ANISOTROPY_EXT, maxAniso)
+          const finish = () => {
+            if (mipmaps) gl.generateMipmap(gl.TEXTURE_2D)
+            bitmap.close()
+            pendingBitmaps.delete(bitmap)
+            t.sourceTexture = handle
           }
-          bitmap.close()
-          // we touched GL state behind three's back
+          if (bitmap.height <= rows) {
+            gl.texImage2D(gl.TEXTURE_2D, 0, format, gl.RGBA, gl.UNSIGNED_BYTE, bitmap)
+            finish()
+          } else {
+            gl.texImage2D(gl.TEXTURE_2D, 0, format, bitmap.width, bitmap.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+            for (let y = 0; y < bitmap.height; y += rows) {
+              const height = Math.min(rows, bitmap.height - y)
+              queueJob(() => {
+                gl.bindTexture(gl.TEXTURE_2D, handle)
+                gl.pixelStorei(gl.UNPACK_SKIP_ROWS, y)
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y, bitmap.width, height, gl.RGBA, gl.UNSIGNED_BYTE, bitmap)
+                gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0)
+                if (y + height === bitmap.height) finish()
+                renderer.resetState()
+              })
+            }
+          }
           renderer.resetState()
-          t.sourceTexture = handle
-        }, (bitmap.width * bitmap.height) > 1024 * 1024)
+        })
       })
       .catch(() => {})
     return t
@@ -1035,6 +1043,9 @@ export function createEarthScene({ section, stage, host, soil, caption, pin, fin
     cancelAnimationFrame(raf)
     loads.abort()
     cancelJobs()
+    jobs.length = 0
+    pendingBitmaps.forEach((bitmap) => bitmap.close())
+    pendingBitmaps.clear()
     window.removeEventListener("scroll", onPageScroll)
     ro.disconnect()
     io.disconnect()

@@ -42,6 +42,10 @@ export function Hotspot({
     let intersecting = false
     let frame = 0
     let lastPosition = ""
+    const mobileViewport = window.matchMedia("(max-width: 720px)")
+    let mobile = mobileViewport.matches
+    const onViewportChange = () => { mobile = mobileViewport.matches }
+    mobileViewport.addEventListener("change", onViewportChange)
     let pending: ReturnType<typeof setTimeout>
     const visibility = new IntersectionObserver(([entry]) => {
       intersecting = entry.isIntersecting
@@ -101,7 +105,7 @@ export function Hotspot({
       if (!frame) frame = requestAnimationFrame(place)
     }
     const onSceneMove = () => {
-      if (window.innerWidth <= 720 && (variant !== "species" || pop.dataset.expanded === "true")) return
+      if (mobile && (variant !== "species" || pop.dataset.expanded === "true")) return
       schedulePlace()
     }
     const sizeObserver = new ResizeObserver(schedulePlace)
@@ -161,6 +165,7 @@ export function Hotspot({
     return () => {
       clearTimeout(pending)
       cancelAnimationFrame(frame)
+      mobileViewport.removeEventListener("change", onViewportChange)
       visibility.disconnect()
       sizeObserver.disconnect()
       spot.removeEventListener("spot-active", onActive)
